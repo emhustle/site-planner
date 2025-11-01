@@ -1,3 +1,256 @@
+const WEEEK_API_BASE = 'https://api.weeek.net/v1';
+const WEEEK_TOKEN = 'b06bcb7d-1a9d-4f2b-bdcc-12e9dedc5ceb';
+
+/**
+ * Opens the WEEEK web planner in a new tab.
+ */
+function openWeeekPlanner() {
+  window.open('https://weeek.net/app', '_blank');
+}
+
+/**
+ * Show Kanban in a modal, dynamically pulling tasks/boards from Weeek API
+ * @param {string} zoneId - Which "board" (area) to show or create in WEEEK
+ */
+async function showKanbanModal(zoneId) {
+  // Fetch or create board corresponding to this zone
+  let zone = App.getZoneById(zoneId);
+  if (!zone) return;
+
+  let board = await findOrCreateWeeekBoard(zone.name);
+  let tasks = board ? await fetchWeeekTasks(board.id) : [];
+  showKanbanPopup(board, tasks, zone);
+}
+
+/**
+ * Finds a WEEEK board by name, or creates it if not exists.
+ * @param {string} name
+ */
+async function findOrCreateWeeekBoard(name) {
+  // Get all boards (workspaces)
+  const boards = await fetchWeeekBoards();
+  let board = boards.find(x => x.name === name);
+  if (!board) {
+    board = await createWeeekBoard(name);
+  }
+  return board;
+}
+
+async function fetchWeeekBoards() {
+  const res = await fetch(`${WEEEK_API_BASE}/workspace`, {
+    headers: { 'Authorization': WEEEK_TOKEN }
+  });
+  if (res.ok) {
+    const data = await res.json();
+    return data?.result?.items || [];
+  }
+  return [];
+}
+
+async function createWeeekBoard(name) {
+  const res = await fetch(`${WEEEK_API_BASE}/workspace`, {
+    method: 'POST',
+    headers: {
+      'Authorization': WEEEK_TOKEN,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    return data?.result;
+  }
+  return null;
+}
+
+async function fetchWeeekTasks(workspaceId) {
+  // Get all tasks in the workspace
+  const res = await fetch(`${WEEEK_API_BASE}/workspace/${workspaceId}/task`, {
+    headers: { 'Authorization': WEEEK_TOKEN }
+  });
+  if (res.ok) {
+    const data = await res.json();
+    return data?.result?.items || [];
+  }
+  return [];
+}
+
+async function createWeeekTask(workspaceId, task) {
+  // task: { name, description, ... }
+  const res = await fetch(`${WEEEK_API_BASE}/workspace/${workspaceId}/task`, {
+    method: 'POST',
+    headers: {
+      'Authorization': WEEEK_TOKEN,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(task)
+  });
+  if (res.ok) {
+    const data = await res.json();
+    return data?.result;
+  }
+  return null;
+}
+
+/**
+ * Pop up modal for Kanban, fetched from Weeek API
+ */
+function showKanbanPopup(board, tasks, zone) {
+  let modal = document.createElement('div');
+  modal.id = 'kanban-modal';
+  modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40';
+  modal.innerHTML = `
+    <div class="bg-white max-w-2xl w-full p-6 rounded shadow-lg relative">
+      <button class="absolute top-2 right-2 text-xl" onclick="document.body.removeChild(document.getElementById('kanban-modal'))">&times;</button>
+      <h2 class="mb-4 text-xl font-bold">Канбан: ${zone.name}</h2>
+      <div class="mb-2">
+        <button class="btn" onclick="App.openWeeekPlanner()">Открыть WEEEK планировщик задач</button>
+        <button class="btn ml-2" onclick="App.promptAddWeeekTask('${board.id}')">Добавить задачу</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full mt-2 table-auto border">
+          <thead>
+            <tr><th>Имя</th><th>Статус</th><th>Ответственный</th><th>Дедлайн</th></tr>
+          </thead>
+          <tbody>
+            ${tasks.map(task => `
+              <tr>
+                <td>${task.name}</td>
+                <td>${task.status || ''}</td>
+                <td>${task.assignee?.name || ''}</td>
+                <td>${task.deadline ? new Date(task.deadline).toLocaleDateString() : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+/**
+ * Prompts user to add new Weeek task for this board
+ */
+function promptAddWeeekTask(workspaceId) {
+  const taskName = prompt('Название задачи:');
+  if (taskName) {
+    createWeeekTask(workspaceId, { name: taskName }).then(() => {
+      alert('Задача добавлена!');
+      document.body.removeChild(document.getElementById('kanban-modal'));
+      // Re-open the modal to refresh the board
+      setTimeout(() => App.showKanbanModalByWorkspaceId(workspaceId), 500);
+    });
+  }
+}
+
+// Helper to get zone by id
+function getZoneById(zoneId) {
+  return state.zones.find(z => z.id === zoneId);
+}
+// Helper: re-show Kanban modal by workspace id
+async function showKanbanModalByWorkspaceId(workspaceId) {
+  // Find the zone name by linked board/workspace
+  const boards = await fetchWeeekBoards();
+  const board = boards.find(x => x.id === workspaceId);
+  if (!board) return;
+  let zone = state.zones.find(z => z.name === board.name);
+  if (!zone) return;
+  showKanbanModal(zone.id);
+}
+
+// --- UX Improvements for drawing ---
+
+/**
+ * Instead of just double-click, allow drawing mode to be started from a visible UI button.
+ */
+function renderDrawingControls() {
+  const drawingGroup = document.getElementById('drawing-controls');
+  if (!drawingGroup) return;
+  drawingGroup.innerHTML = `
+    <button class="btn" onclick="App.startDrawingZone()">Начать рисовать зону</button>
+    <button class="btn ml-2" onclick="App.cancelDrawingZone()">Отменить</button>
+    <span class="ml-4 text-gray-600 text-xs">Кликните для точек; дважды — завершить.</span>
+  `;
+}
+
+// Add button to toolbar to open Weeek planner
+function renderToolbar() {
+  document.getElementById('toolbar').innerHTML = `
+    <button class="btn" onclick="App.uploadImage()">Загрузить план</button>
+    <button class="btn ml-2" onclick="App.openWeeekPlanner()">Открыть WEEEK планировщик задач</button>
+    <!-- остальной тулбар... -->
+  `;
+}
+
+// Override/draw improvement: click "Начать рисовать зону" enters drawing mode, click на карту — по точкам, двойной клик — завершить.
+function startDrawingZone() {
+  currentTool = 'draw-zone';
+  drawingZone = { pts: [] };
+  selectedZoneId = null;
+  showMessage('Click на схеме, чтобы добавить точки зоны. Двойной клик — завершить.');
+}
+
+function cancelDrawingZone() {
+  currentTool = null;
+  drawingZone = null;
+  showMessage('Режим рисования зоны отменён.');
+}
+
+// Apply multi-select improvement: when in drawing mode, highlight points and show live polygon
+function setupDrawingListeners(svg) {
+  svg.addEventListener('click', function(evt) {
+    if (currentTool !== 'draw-zone') return;
+    const pt = getSVGPoint(evt, svg);
+    drawingZone.pts.push([pt.x, pt.y]);
+    renderWorkingPolygon(svg, drawingZone.pts);
+  });
+  svg.addEventListener('dblclick', function(evt) {
+    if (currentTool !== 'draw-zone') return;
+    if (drawingZone.pts.length >= 3) {
+      const name = prompt('Имя зоны:');
+      const color = randomColor();
+      const newZone = {
+        id: generateId(), name, color, points: [...drawingZone.pts]
+      };
+      state.zones.push(newZone);
+      // ALSO: create corresponding WEEEK board
+      findOrCreateWeeekBoard(name);
+      drawingZone = null;
+      currentTool = null;
+      saveProject();
+      render();
+    }
+  });
+}
+
+// On double click zone: show Kanban modal, auto-linked to Weeek
+function zoneDblClickHandler(zoneId) {
+  showKanbanModal(zoneId);
+}
+
+function renderWorkingPolygon(svg, pts) {
+  // remove previous working polygons
+  let temp = svg.querySelector('.working-polygon');
+  if (temp) svg.removeChild(temp);
+  const polygon = document.createElementNS("http://www.w3.org/2000/svg", 'polygon');
+  polygon.setAttribute('points', pts.map(([x, y]) => `${x},${y}`).join(' '));
+  polygon.setAttribute('fill', 'rgba(100, 200, 255, 0.3)');
+  polygon.setAttribute('stroke', 'blue');
+  polygon.setAttribute('stroke-dasharray', '4 2');
+  polygon.classList.add('working-polygon');
+  svg.appendChild(polygon);
+}
+
+// Expose new API to App:
+App.openWeeekPlanner = openWeeekPlanner;
+App.showKanbanModal = showKanbanModal;
+App.startDrawingZone = startDrawingZone;
+App.cancelDrawingZone = cancelDrawingZone;
+App.setupDrawingListeners = setupDrawingListeners;
+App.getZoneById = getZoneById;
+App.promptAddWeeekTask = promptAddWeeekTask;
+App.showKanbanModalByWorkspaceId = showKanbanModalByWorkspaceId;
+
 
 
 
