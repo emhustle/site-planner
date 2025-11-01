@@ -168,12 +168,19 @@ function showMessage(msg) {
   }
 }
 
-// Always assign a nice toolbar even if Tailwind doesn't exist
+// Всегда назначаем функцию renderToolbar,
+// даже если ее еще не было, чтобы меню отрисовывалось при любом раскладе
 function renderToolbar() {
-  // Fill the toolbar only if it exists
-  const toolbar = document.getElementById('toolbar');
-  if (!toolbar) return;
-  // You can easily style the buttons here or use Tailwind classes in your HTML
+  // Если toolbar не существует -- создаем его в DOM
+  let toolbar = document.getElementById('toolbar');
+  if (!toolbar) {
+    toolbar = document.createElement('div');
+    toolbar.id = 'toolbar';
+    toolbar.className = 'p-4 bg-slate-100 border-b';
+    // По умолчанию вставляем в начало body
+    document.body.insertBefore(toolbar, document.body.firstChild);
+  }
+  // Рисуем сам тулбар
   toolbar.innerHTML = `
     <button class="toolbar-btn" onclick="App.uploadImage()">Загрузить план</button>
     <button class="toolbar-btn" onclick="App.saveProject()">Сохранить проект</button>
@@ -466,8 +473,20 @@ const App2 = (() => {
   }
 
   function renderMain() {
-    const main = document.getElementById('main');
-    if (!main) return;
+    // Если main не существует, создаем и вставляем его в DOM
+    let main = document.getElementById('main');
+    if (!main) {
+      main = document.createElement('div');
+      main.id = 'main';
+      main.style.padding = '16px';
+      // Вставим после тулбара если он есть, иначе просто в конец body
+      let tb = document.getElementById('toolbar');
+      if (tb && tb.nextSibling) {
+        tb.parentNode.insertBefore(main, tb.nextSibling);
+      } else {
+        document.body.appendChild(main);
+      }
+    }
     if (!state.image) {
       main.innerHTML = `<div style="padding:36px;text-align:center;color:#6b7280;">Для начала загрузите изображение плана</div>`;
       return;
@@ -558,18 +577,32 @@ const App2 = (() => {
 // Final export, overwrite window.App for compatibility
 window.App = App2;
 
-// Minimal static HTML init
+// Минимальная инициализация HTML для SPA, создаем динамически всё что нужно (toolbar/main), если оно ещё не создано
 window.onload = () => {
-  // Do NOT create #toolbar if it already exists (leave as is!)
-  // Just fill its contents via renderToolbar later
-  // If it does not exist, create fallback minimal HTML
+  // Если тулбар не существует, создаём его
   if (!document.getElementById('toolbar')) {
-    document.body.innerHTML = `
-      <div id="toolbar" class="p-4 bg-slate-100 border-b"></div>
-      <div id="main" style="padding:16px;"></div>
-      <div id="modals"></div>
-    `;
+    let toolbar = document.createElement('div');
+    toolbar.id = 'toolbar';
+    toolbar.className = 'p-4 bg-slate-100 border-b';
+    document.body.appendChild(toolbar);
   }
+
+  // Если main не существует, создаём его
+  if (!document.getElementById('main')) {
+    let main = document.createElement('div');
+    main.id = 'main';
+    main.style.padding = '16px';
+    document.body.appendChild(main);
+  }
+
+  // Если modals не существует, создаём его
+  if (!document.getElementById('modals')) {
+    let modals = document.createElement('div');
+    modals.id = 'modals';
+    document.body.appendChild(modals);
+  }
+
+  // Теперь UI должен отрисоваться корректно в любом случае
   App.loadProject();
   App.render();
 };
