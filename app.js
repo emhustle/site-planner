@@ -170,7 +170,11 @@ function showMessage(msg) {
 
 // Always assign a nice toolbar even if Tailwind doesn't exist
 function renderToolbar() {
-  document.getElementById('toolbar').innerHTML = `
+  // Fill the toolbar only if it exists
+  const toolbar = document.getElementById('toolbar');
+  if (!toolbar) return;
+  // You can easily style the buttons here or use Tailwind classes in your HTML
+  toolbar.innerHTML = `
     <button class="toolbar-btn" onclick="App.uploadImage()">Загрузить план</button>
     <button class="toolbar-btn" onclick="App.saveProject()">Сохранить проект</button>
     <button class="toolbar-btn" onclick="App.showKanban()">Открыть канбан</button>
@@ -556,9 +560,12 @@ window.App = App2;
 
 // Minimal static HTML init
 window.onload = () => {
+  // Do NOT create #toolbar if it already exists (leave as is!)
+  // Just fill its contents via renderToolbar later
+  // If it does not exist, create fallback minimal HTML
   if (!document.getElementById('toolbar')) {
     document.body.innerHTML = `
-      <div id="toolbar" style="padding:10px 16px;background:#e9ecf4;border-bottom:1px solid #cbd5e1;"></div>
+      <div id="toolbar" class="p-4 bg-slate-100 border-b"></div>
       <div id="main" style="padding:16px;"></div>
       <div id="modals"></div>
     `;
